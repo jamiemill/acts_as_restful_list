@@ -429,6 +429,25 @@ describe "ActsAsRestfulList" do
     it 'should return a scope condition that limits based on the parent_id' do
       Mixin.new(:parent_name => 'Brandy').scope_condition.should == "parent_name = 'Brandy'"
     end
+
+    describe 'testing sanitizing of scope conditions' do
+      before(:each) do
+        (1..4).each{ Mixin.create!(:parent_name => 1) }
+        (1..4).each{ Mixin.create!(:parent_name => 2) }
+      end
+
+      it 'should move to new safely escaped parent scope' do
+        user5_parent1_third_mixin = Mixin.first( :conditions => { :position => 3, :parent_name => 1 } )
+        user5_parent1_third_mixin.position = 1
+        user5_parent1_third_mixin.parent_name = "troublesome'quote"
+        user5_parent1_third_mixin.save!
+        user5_parent1_third_mixin.reload.position.should == 1
+        Mixin.all(:conditions => { :parent_name => 1 }, :order => 'position ASC').collect(&:position).should == [1,2,3]
+        Mixin.all(:conditions => { :parent_name => 1 }, :order => 'position ASC').collect(&:id).should == [1,2,4]
+        Mixin.all(:conditions => { :parent_name => "troublesome'quote" }, :order => 'position ASC').collect(&:position).should == [1]
+        Mixin.all(:conditions => { :parent_name => "troublesome'quote" }, :order => 'position ASC').collect(&:id).should == [3]
+      end
+    end
   end
   
   
@@ -520,5 +539,60 @@ describe "ActsAsRestfulList" do
       Mixin.all(:conditions => { :parent_id => 2, :user_id => 7 }, :order => 'position ASC').collect(&:position).should == [1,2,3,4]
       Mixin.all(:conditions => { :parent_id => 2, :user_id => 7 }, :order => 'position ASC').collect(&:id).should == [13,14,15,16]
     end
+  end
+
+  describe 'declaring acts_as_restful_list and setting the scope to include a boolean column' do
+    before(:all) do
+      ActiveRecord::Schema.define(:version => 1) do
+        create_table :mixins do |t|
+          t.column :position, :integer
+          t.column :user_id, :integer
+          t.column :enabled, :boolean
+          t.column :created_at, :datetime
+          t.column :updated_at, :datetime
+        end
+      end
+
+      class Mixin < ActiveRecord::Base
+        acts_as_restful_list :scope => [:enabled, :user]
+      end
+    end
+
+    after(:all) do
+      Object.send(:remove_const, :Mixin)
+
+      ActiveRecord::Base.connection.tables.each do |table|
+        ActiveRecord::Base.connection.drop_table(table)
+      end
+    end
+
+    it 'should define scope_condition as an instance method' do
+      Mixin.new.should respond_to(:scope_condition)
+    end
+
+    describe 'reordering on update' do
+      before(:each) do
+        (1..4).each{ Mixin.create!(:enabled => false, :user_id => 5) }
+        (1..4).each{ Mixin.create!(:enabled => true, :user_id => 5) }
+        (1..4).each{ Mixin.create!(:enabled => false, :user_id => 7) }
+        (1..4).each{ Mixin.create!(:enabled => true, :user_id => 7) }
+      end
+
+      it 'should automatically reorder the list if a record is updated with a lower position' do
+        user5_parent1_fourth_mixin = Mixin.first( :conditions => { :position => 4, :enabled => false, :user_id => 5 } )
+        user5_parent1_fourth_mixin.position = 2
+        user5_parent1_fourth_mixin.save!
+        user5_parent1_fourth_mixin.reload.position.should == 2
+        Mixin.all(:conditions => { :enabled => false, :user_id => 5 }, :order => 'position ASC').collect(&:position).should == [1,2,3,4]
+        Mixin.all(:conditions => { :enabled => false, :user_id => 5 }, :order => 'position ASC').collect(&:id).should == [1,4,2,3]
+        Mixin.all(:conditions => { :enabled => true, :user_id => 5 }, :order => 'position ASC').collect(&:position).should == [1,2,3,4]
+        Mixin.all(:conditions => { :enabled => true, :user_id => 5 }, :order => 'position ASC').collect(&:id).should == [5,6,7,8]
+        Mixin.all(:conditions => { :enabled => false, :user_id => 7 }, :order => 'position ASC').collect(&:position).should == [1,2,3,4]
+        Mixin.all(:conditions => { :enabled => false, :user_id => 7 }, :order => 'position ASC').collect(&:id).should == [9,10,11,12]
+        Mixin.all(:conditions => { :enabled => true, :user_id => 7 }, :order => 'position ASC').collect(&:position).should == [1,2,3,4]
+        Mixin.all(:conditions => { :enabled => true, :user_id => 7 }, :order => 'position ASC').collect(&:id).should == [13,14,15,16]
+      end
+    end
+
   end
 end

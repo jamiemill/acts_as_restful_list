@@ -22,31 +22,32 @@ module ActsAsRestfulList
       define_method 'position_column' do
         configuration[:column].to_s
       end
-      
-      define_method 'scope_condition' do
+
+      define_method 'get_scope_condition' do |options|
         if configuration[:scope].nil?
           nil
         else
-          scopes = Array(configuration[:scope]).collect do |scope|
+          conditions, values = [], []
+          Array(configuration[:scope]).each do |scope|
             column = self.class.column_names.include?(scope.to_s) ? scope.to_s : "#{scope}_id"
-            value = self.send(column)
-            value.nil? ? "#{column} IS NULL" : "#{column} = #{value.is_a?(String) ? "'#{value}'" : value}"
+            value = options[:before] ? self.send("#{column}_was") : self.send(column)
+            if value.nil?
+              conditions.push "#{column} IS NULL"
+            else
+              conditions.push "#{column} = ?"
+              values.push value
+            end
           end
-          scopes.join(' AND ')
+          self.class.send(:sanitize_sql_for_conditions, [conditions.join(' AND ')].concat(values))
         end
       end
-      
+
+      define_method 'scope_condition' do
+        self.send(:get_scope_condition, {:before => false})
+      end
+
       define_method 'scope_condition_was' do
-        if configuration[:scope].nil?
-          nil
-        else
-          scopes = Array(configuration[:scope]).collect do |scope|
-            column = self.class.column_names.include?(scope.to_s) ? scope.to_s : "#{scope}_id"
-            value = self.send("#{column}_was")
-            value.nil? ? "#{column} IS NULL" : "#{column} = #{value.is_a?(String) ? "'#{value}'" : value}"
-          end
-          scopes.join(' AND ')
-        end
+        self.send(:get_scope_condition, {:before => true})
       end
       
       define_method 'optimistic_locking_update' do
